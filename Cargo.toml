@@ -16,9 +16,8 @@ members = [
 ]
 
 [[bin]]
-doc = false
-path = "src/main.rs"
 name = "alacritty"
+doc = false
 
 [dependencies]
 libc = "0.2"
