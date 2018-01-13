@@ -30,6 +30,8 @@ use MouseCursor;
 
 use cli::Options;
 use config::{Decorations, WindowConfig};
+use display::OnResize;
+use term::SizeInfo;
 
 #[cfg(windows)]
 static WINDOW_ICON: &'static [u8] = include_bytes!("../assets/windows/alacritty.ico");
@@ -295,11 +297,6 @@ impl Window {
         self.event_loop.poll_events(func);
     }
 
-    #[inline]
-    pub fn resize(&self, width: u32, height: u32) {
-        self.window.resize(width, height);
-    }
-
     /// Block waiting for events
     #[inline]
     pub fn wait_events<F>(&mut self, func: F)
@@ -473,6 +470,10 @@ impl Window {
     pub fn hide(&self) {
         self.window.hide();
     }
+
+    pub fn notifier(&self) -> Notifier {
+        Notifier(self.create_window_proxy())
+    }
 }
 
 pub trait OsExtensions {
@@ -545,6 +546,13 @@ impl OsExtensions for Window {
     }
 }
 
+impl OnResize for Window {
+    #[inline]
+    fn on_resize(&mut self, size: &SizeInfo) {
+        self.window.resize(size.width as u32, size.height as u32);
+    }
+}
+
 impl Proxy {
     /// Wakes up the event loop of the window
     ///
@@ -552,6 +560,15 @@ impl Proxy {
     /// be waiting on user input.
     pub fn wakeup_event_loop(&self) {
         self.inner.wakeup().unwrap();
+    }
+}
+
+/// Can wakeup the render loop from other threads
+pub struct Notifier(Proxy);
+
+impl Notifier {
+    pub fn notify(&self) {
+        self.0.wakeup_event_loop();
     }
 }
 

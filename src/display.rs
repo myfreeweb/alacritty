@@ -19,15 +19,14 @@ use std::sync::mpsc;
 use parking_lot::MutexGuard;
 
 use Rgb;
-use cli;
-use config::Config;
+use config::{self, Config};
 use font::{self, Rasterize};
 use meter::Meter;
 use renderer::{self, GlyphCache, QuadRenderer};
 use term::{Term, SizeInfo, RenderableCell};
 use sync::FairMutex;
 
-use window::{self, Pixels, SetInnerSize, Size, Window};
+use window::{self, Pixels, Size};
 
 #[derive(Debug)]
 pub enum Error {
@@ -87,9 +86,8 @@ impl From<renderer::Error> for Error {
     }
 }
 
-/// The display wraps a window, font rasterizer, and GPU renderer
+/// The display wraps a font rasterizer and GPU renderer
 pub struct Display {
-    window: Window,
     renderer: QuadRenderer,
     glyph_cache: GlyphCache,
     render_timer: bool,
@@ -100,25 +98,17 @@ pub struct Display {
     size_info: SizeInfo,
 }
 
-/// Can wakeup the render loop from other threads
-pub struct Notifier(window::Proxy);
-
 /// Types that are interested in when the display is resized
 pub trait OnResize {
     fn on_resize(&mut self, size: &SizeInfo);
 }
 
-impl Notifier {
-    pub fn notify(&self) {
-        self.0.wakeup_event_loop();
-    }
+pub enum InitialSize {
+    Cells(config::Dimensions),
+    Pixels(Size<Pixels<u32>>),
 }
 
 impl Display {
-    pub fn notifier(&self) -> Notifier {
-        Notifier(self.window.create_window_proxy())
-    }
-
     pub fn update_config(&mut self, config: &Config) {
         self.render_timer = config.render_timer();
     }
@@ -128,54 +118,39 @@ impl Display {
         &self.size_info
     }
 
-    pub fn new(config: &Config, options: &cli::Options) -> Result<Display, Error> {
+    pub fn new(
+        config: &Config,
+        options: &cli::Options,
+        size: InitialSize,
+        dpr: f32
+    ) -> Result<Display, Error> {
         // Extract some properties from config
         let render_timer = config.render_timer();
 
-        // Create the window where Alacritty will be displayed
-        let mut window = Window::new(&options, config.window())?;
-
-        // get window properties for initializing the other subsystems
-        let mut viewport_size = window.inner_size_pixels()
-            .expect("glutin returns window size");
-        let dpr = if config.font().scale_with_dpi() {
-            window.hidpi_factor()
-        } else {
-            1.0
-        };
-
-        info!("device_pixel_ratio: {}", dpr);
-
         // Create renderer
-        let mut renderer = QuadRenderer::new(config, viewport_size)?;
-
+        // Start with zero size, then initialize the font rasterizer, compute font metrics and use
+        // those to calculate the actual size if needed.
+        let zero_size = Size { width: Pixels(0), height: Pixels(0) };
+        let mut renderer = QuadRenderer::new(&config, zero_size)?;
         let (glyph_cache, cell_width, cell_height) =
             Self::new_glyph_cache(dpr, &mut renderer, config)?;
-
-
-        let dimensions = options.dimensions()
-            .unwrap_or_else(|| config.dimensions());
-
-        // Resize window to specified dimensions unless one or both dimensions are 0
-        if dimensions.columns_u32() > 0 && dimensions.lines_u32() > 0 {
-            let width = cell_width as u32 * dimensions.columns_u32();
-            let height = cell_height as u32 * dimensions.lines_u32();
-
-            let new_viewport_size = Size {
-                width: Pixels(width + 2 * u32::from(config.padding().x)),
-                height: Pixels(height + 2 * u32::from(config.padding().y)),
-            };
-
-            window.set_inner_size(&new_viewport_size);
-            renderer.resize(new_viewport_size.width.0 as _, new_viewport_size.height.0 as _);
-            viewport_size = new_viewport_size
-        }
-
+        let size = match size {
+            InitialSize::Cells(dimensions) => {
+                let width = cell_width as u32 * dimensions.columns_u32();
+                let height = cell_height as u32 * dimensions.lines_u32();
+                Size {
+                    width: Pixels(width + 2 * u32::from(config.padding().x)),
+                    height: Pixels(height + 2 * u32::from(config.padding().y)),
+                }
+            },
+            InitialSize::Pixels(size) => size,
+        };
+        renderer.resize(size.width.0 as _, size.height.0 as _);
         info!("Cell Size: ({} x {})", cell_width, cell_height);
 
         let size_info = SizeInfo {
-            width: viewport_size.width.0 as f32,
-            height: viewport_size.height.0 as f32,
+            width: size.width.0 as f32,
+            height: size.height.0 as f32,
             cell_width: cell_width as f32,
             cell_height: cell_height as f32,
             padding_x: f32::from(config.padding().x),
@@ -268,10 +243,6 @@ impl Display {
         self.tx.clone()
     }
 
-    pub fn window(&mut self) -> &mut Window {
-        &mut self.window
-    }
-
     /// Process pending resize events
     pub fn handle_resize(
         &mut self,
@@ -313,7 +284,6 @@ impl Display {
                 item.on_resize(size)
             }
 
-            self.window.resize(w, h);
             self.renderer.resize(w as i32, h as i32);
         }
     }
@@ -336,37 +306,6 @@ impl Display {
 
         // Clear dirty flag
         terminal.dirty = !terminal.visual_bell.completed();
-
-        if let Some(title) = terminal.get_next_title() {
-            self.window.set_title(&title);
-        }
-
-        if let Some(mouse_cursor) = terminal.get_next_mouse_cursor() {
-            self.window.set_mouse_cursor(mouse_cursor);
-        }
-
-        if let Some(is_urgent) = terminal.next_is_urgent.take() {
-            // We don't need to set the urgent flag if we already have the
-            // user's attention.
-            if !is_urgent || !self.window.is_focused {
-                self.window.set_urgent(is_urgent);
-            }
-        }
-
-        // Clear when terminal mutex isn't held. Mesa for
-        // some reason takes a long time to call glClear(). The driver descends
-        // into xcb_connect_to_fd() which ends up calling __poll_nocancel()
-        // which blocks for a while.
-        //
-        // By keeping this outside of the critical region, the Mesa bug is
-        // worked around to some extent. Since this doesn't actually address the
-        // issue of glClear being slow, less time is available for input
-        // handling and rendering.
-        drop(terminal);
-
-        self.renderer.with_api(config, &size_info, visual_bell_intensity, |api| {
-            api.clear(background_color);
-        });
 
         {
             let glyph_cache = &mut self.glyph_cache;
@@ -395,18 +334,10 @@ impl Display {
                     });
             }
         }
-
-        self.window
-            .swap_buffers()
-            .expect("swap buffers");
     }
 
-    pub fn get_window_id(&self) -> Option<usize> {
-        self.window.get_window_id()
-    }
-
-    /// Adjust the IME editor position according to the new location of the cursor
-    pub fn update_ime_position(&mut self, terminal: &Term) {
+    /// Adjust the XIM editor position according to the new location of the cursor
+    pub fn current_xim_spot(&mut self, terminal: &Term) -> (i32, i32) {
         use index::{Column, Line, Point};
         use term::SizeInfo;
         let Point{line: Line(row), col: Column(col)} = terminal.cursor().point;
@@ -416,7 +347,7 @@ impl Display {
                     padding_y: py, ..} = *terminal.size_info();
         let nspot_y = (py + (row + 1) as f32 * ch) as i32;
         let nspot_x = (px + col as f32 * cw) as i32;
-        self.window().set_ime_spot(nspot_x, nspot_y);
+        (nspot_x, nspot_y)
     }
 }
 

@@ -13,7 +13,7 @@ use mio_more::channel::{self, Receiver, Sender};
 use mio::unix::UnixReady;
 
 use ansi;
-use display;
+use window;
 use event;
 use tty;
 use term::Term;
@@ -40,7 +40,7 @@ pub struct EventLoop<T: tty::EventedReadWrite> {
     rx: Receiver<Msg>,
     tx: Sender<Msg>,
     terminal: Arc<FairMutex<Term>>,
-    display: display::Notifier,
+    window: window::Notifier,
     ref_test: bool,
 }
 
@@ -170,7 +170,7 @@ impl<T> EventLoop<T>
     /// Create a new event loop
     pub fn new(
         terminal: Arc<FairMutex<Term>>,
-        display: display::Notifier,
+        window: window::Notifier,
         pty: T,
         ref_test: bool,
     ) -> EventLoop<T> {
@@ -181,7 +181,7 @@ impl<T> EventLoop<T>
             tx,
             rx,
             terminal,
-            display,
+            window,
             ref_test,
         }
     }
@@ -296,7 +296,7 @@ impl<T> EventLoop<T>
         // Only request a draw if one hasn't already been requested.
         if let Some(mut terminal) = terminal {
             if send_wakeup {
-                self.display.notify();
+                self.window.notify();
                 terminal.dirty = true;
             }
         }
