@@ -178,7 +178,6 @@ impl Display {
         );
 
         Ok(Display {
-            window,
             renderer,
             glyph_cache,
             render_timer,
