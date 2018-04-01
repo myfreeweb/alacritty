@@ -13,12 +13,16 @@ use mio_more::channel::{self, Receiver, Sender};
 use mio::unix::UnixReady;
 
 use ansi;
-use window;
 use event;
 use tty;
 use term::Term;
 use util::thread;
 use sync::FairMutex;
+
+
+pub trait WindowNotifier {
+    fn notify(&self);
+}
 
 /// Messages that may be sent to the `EventLoop`
 #[derive(Debug)]
@@ -40,7 +44,7 @@ pub struct EventLoop<T: tty::EventedReadWrite> {
     rx: Receiver<Msg>,
     tx: Sender<Msg>,
     terminal: Arc<FairMutex<Term>>,
-    window: window::Notifier,
+    window: Box<WindowNotifier + Send>,
     ref_test: bool,
 }
 
@@ -170,7 +174,7 @@ impl<T> EventLoop<T>
     /// Create a new event loop
     pub fn new(
         terminal: Arc<FairMutex<Term>>,
-        window: window::Notifier,
+        window: Box<WindowNotifier + Send>,
         pty: T,
         ref_test: bool,
     ) -> EventLoop<T> {

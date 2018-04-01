@@ -200,7 +200,7 @@ fn run(mut config: Config, options: &cli::Options) -> Result<(), Box<Error>> {
     // consumes it periodically.
     let event_loop = EventLoop::new(
         Arc::clone(&terminal),
-        window.notifier(),
+        Box::new(window.notifier()),
         pty,
         options.ref_test,
     );
