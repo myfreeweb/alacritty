@@ -355,4 +355,7 @@ pub trait Rasterize {
 
     /// Rasterize the glyph described by `GlyphKey`.
     fn get_glyph(&mut self, GlyphKey) -> Result<RasterizedGlyph, Self::Err>;
+
+    /// Update stored device pixel ratio
+    fn set_device_pixel_ratio(&mut self, f32);
 }

@@ -214,7 +214,7 @@ fn run(mut config: Config, options: &cli::Options) -> Result<(), Box<Error>> {
     // Need the Rc<RefCell<_>> here since a ref is shared in the resize callback
     let mut processor = event::Processor::new(
         event_loop::Notifier(event_loop.channel()),
-        display.resize_channel(),
+        display.command_channel(),
         options,
         &config,
         options.ref_test,
@@ -263,7 +263,7 @@ fn run(mut config: Config, options: &cli::Options) -> Result<(), Box<Error>> {
             let (x, y) = display.current_xim_spot(&terminal_lock);
             window.send_xim_spot(x, y);
 
-            // Handle pending resize events
+            // Handle pending resize (and HiDPI factor change) events
             //
             // The second argument is a list of types that want to be notified
             // of display size changes.

@@ -86,13 +86,18 @@ impl From<renderer::Error> for Error {
     }
 }
 
+pub enum DisplayCommand {
+    NewSize(u32, u32),
+    NewHiDPIFactor(f32),
+}
+
 /// The display wraps a font rasterizer and GPU renderer
 pub struct Display {
     renderer: QuadRenderer,
     glyph_cache: GlyphCache,
     render_timer: bool,
-    rx: mpsc::Receiver<(u32, u32)>,
-    tx: mpsc::Sender<(u32, u32)>,
+    rx: mpsc::Receiver<DisplayCommand>,
+    tx: mpsc::Sender<DisplayCommand>,
     meter: Meter,
     font_size: font::Size,
     size_info: SizeInfo,
@@ -225,11 +230,11 @@ impl Display {
         Ok((glyph_cache, cell_width.floor(), cell_height.floor()))
     }
 
-    pub fn update_glyph_cache(&mut self, config: &Config) {
+    pub fn update_glyph_cache(&mut self, config: &Config, new_dpr: Option<f32>) {
         let cache = &mut self.glyph_cache;
         let size = self.font_size;
         self.renderer.with_loader(|mut api| {
-            let _ = cache.update_font_size(config.font(), size, &mut api);
+            let _ = cache.update_font_size(config.font(), size, new_dpr, &mut api);
         });
 
         let metrics = cache.font_metrics();
@@ -238,11 +243,11 @@ impl Display {
     }
 
     #[inline]
-    pub fn resize_channel(&self) -> mpsc::Sender<(u32, u32)> {
+    pub fn command_channel(&self) -> mpsc::Sender<DisplayCommand> {
         self.tx.clone()
     }
 
-    /// Process pending resize events
+    /// Process pending resize (and HiDPI factor) events
     pub fn handle_resize(
         &mut self,
         terminal: &mut MutexGuard<Term>,
@@ -253,16 +258,20 @@ impl Display {
         // iterator. This has the effect of coalescing multiple resize
         // events into one.
         let mut new_size = None;
+        let mut new_dpr = None;
 
         // Take most recent resize event, if any
         while let Ok(sz) = self.rx.try_recv() {
-            new_size = Some(sz);
+            match sz {
+                DisplayCommand::NewSize(w, h) => new_size = Some((w, h)),
+                DisplayCommand::NewHiDPIFactor(dpr) => new_dpr = Some(dpr)
+            }
         }
 
         // Font size modification detected
-        if terminal.font_size != self.font_size {
+        if terminal.font_size != self.font_size || new_dpr.is_some() {
             self.font_size = terminal.font_size;
-            self.update_glyph_cache(config);
+            self.update_glyph_cache(config, new_dpr);
 
             if new_size == None {
                 // Force a resize to refresh things

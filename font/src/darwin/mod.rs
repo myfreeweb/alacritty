@@ -184,6 +184,10 @@ impl ::Rasterize for Rasterizer {
                 Err(Error::MissingGlyph(glyph.c))
             })
     }
+
+    fn set_device_pixel_ratio(&mut self, dpr: f32) {
+        self.device_pixel_ratio = dpr;
+    }
 }
 
 impl Rasterizer {

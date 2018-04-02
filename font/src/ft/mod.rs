@@ -106,6 +106,9 @@ impl ::Rasterize for FreeTypeRasterizer {
         self.get_rendered_glyph(glyph_key)
     }
 
+    fn set_device_pixel_ratio(&mut self, dpr: f32) {
+        self.device_pixel_ratio = dpr;
+    }
 }
 
 pub trait IntoFontconfigType {

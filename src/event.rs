@@ -14,7 +14,7 @@ use ansi::{Handler, ClearMode};
 use grid::Scroll;
 use config::{self, Config};
 use cli::Options;
-use display::OnResize;
+use display::{OnResize, DisplayCommand};
 use index::{Line, Column, Side, Point};
 use input::{self, MouseBinding, KeyBinding};
 use selection::Selection;
@@ -251,7 +251,7 @@ pub struct Processor<N> {
     wait_for_event: bool,
     notifier: N,
     mouse: Mouse,
-    resize_tx: mpsc::Sender<(u32, u32)>,
+    display_tx: mpsc::Sender<DisplayCommand>,
     ref_test: bool,
     size_info: SizeInfo,
     hide_mouse_when_typing: bool,
@@ -280,7 +280,7 @@ impl<N: Notify> Processor<N> {
     /// pty.
     pub fn new(
         notifier: N,
-        resize_tx: mpsc::Sender<(u32, u32)>,
+        display_tx: mpsc::Sender<DisplayCommand>,
         options: &Options,
         config: &Config,
         ref_test: bool,
@@ -294,7 +294,7 @@ impl<N: Notify> Processor<N> {
             print_events: options.print_events,
             wait_for_event: true,
             notifier,
-            resize_tx,
+            display_tx,
             ref_test,
             mouse: Default::default(),
             size_info,
@@ -316,7 +316,7 @@ impl<N: Notify> Processor<N> {
         processor: &mut input::Processor<'a, ActionContext<'a, N>>,
         event: Event,
         ref_test: bool,
-        resize_tx: &mpsc::Sender<(u32, u32)>,
+        display_tx: &mpsc::Sender<DisplayCommand>,
         hide_mouse: &mut bool,
         window_is_focused: &mut bool,
     ) {
@@ -351,9 +351,13 @@ impl<N: Notify> Processor<N> {
                         ::std::process::exit(0);
                     },
                     Resized(w, h) => {
-                        resize_tx.send((w, h)).expect("send new size");
+                        display_tx.send(DisplayCommand::NewSize(w, h)).expect("send new size");
                         processor.ctx.terminal.dirty = true;
                     },
+                    HiDPIFactorChanged(dpr) => {
+                        display_tx.send(DisplayCommand::NewHiDPIFactor(dpr)).expect("send new size");
+                        processor.ctx.terminal.dirty = true;
+                    }
                     KeyboardInput { input, .. } => {
                         processor.process_key(input);
                         if input.state == ElementState::Pressed {
@@ -434,7 +438,7 @@ impl<N: Notify> Processor<N> {
             let print_events = self.print_events;
 
             let ref_test = self.ref_test;
-            let resize_tx = &self.resize_tx;
+            let display_tx = &self.display_tx;
 
             if self.wait_for_event {
                 // A Vec is used here since wait_events can potentially yield
@@ -483,7 +487,7 @@ impl<N: Notify> Processor<N> {
                         &mut processor,
                         event,
                         ref_test,
-                        resize_tx,
+                        display_tx,
                         hide_mouse,
                         &mut window_is_focused,
                     );

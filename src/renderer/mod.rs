@@ -291,6 +291,7 @@ impl GlyphCache {
         &mut self,
         font: &config::Font,
         size: font::Size,
+        new_dpr: Option<f32>,
         loader: &mut L
     ) -> Result<(), font::Error> {
         // Clear currently cached data in both GL and the registry
@@ -301,7 +302,11 @@ impl GlyphCache {
         let font = font.to_owned().with_size(size);
         info!("Font size changed: {:?}", font.size);
         let (regular, bold, italic) = Self::compute_font_keys(&font, &mut self.rasterizer)?;
-      
+
+        if let Some(dpr) = new_dpr {
+            self.rasterizer.set_device_pixel_ratio(dpr);
+        }
+
         self.rasterizer.get_glyph(GlyphKey { font_key: regular, c: 'm', size: font.size() })?;
         let metrics = self.rasterizer.metrics(regular, size)?;
 
