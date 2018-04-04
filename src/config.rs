@@ -14,7 +14,7 @@ use std::time::Duration;
 use std::collections::HashMap;
 
 use ::Rgb;
-use font::Size;
+pub use font::Size;
 use serde_yaml;
 use serde::{self, de, Deserialize};
 use serde::de::Error as SerdeError;
@@ -1566,6 +1566,12 @@ impl Config {
     #[inline]
     pub fn font(&self) -> &Font {
         &self.font
+    }
+
+    /// Set font config
+    #[inline]
+    pub fn set_font(&mut self, font: Font) {
+        self.font = font
     }
 
     /// Get window dimensions
