@@ -140,7 +140,7 @@ fn run(mut config: Config, options: &cli::Options) -> Result<(), Box<Error>> {
     };
 
     // Create the window where Alacritty will be displayed
-    let mut window = Window::new(&options.title, config.window())?;
+    let mut window = Window::new(&options, config.window())?;
 
     let dpr = window.hidpi_factor();
     info!("device_pixel_ratio: {}", dpr);
@@ -261,7 +261,7 @@ fn run(mut config: Config, options: &cli::Options) -> Result<(), Box<Error>> {
         if terminal_lock.needs_draw() {
             // Try to update the position of the input method editor
             let (x, y) = display.current_xim_spot(&terminal_lock);
-            window.send_xim_spot(x, y);
+            window.set_ime_spot(x, y);
 
             // Handle pending resize (and HiDPI factor change) events
             //

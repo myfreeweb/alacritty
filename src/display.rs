@@ -125,7 +125,6 @@ impl Display {
 
     pub fn new(
         config: &Config,
-        options: &cli::Options,
         size: InitialSize,
         dpr: f32
     ) -> Result<Display, Error> {
@@ -301,13 +300,11 @@ impl Display {
     /// A reference to Term whose state is being drawn must be provided.
     ///
     /// This call may block if vsync is enabled
-    pub fn draw(&mut self, terminal: &FairMutex<Term>, config: &Config) {
+    pub fn draw(&mut self, terminal: &FairMutex<Term>, config: &Config, window_focused: bool) {
         let mut terminal = terminal.lock();
         let size_info = *terminal.size_info();
         let visual_bell_intensity = terminal.visual_bell.intensity();
-        let background_color = terminal.background_color();
 
-        let window_focused = self.window.is_focused;
         let grid_cells: Vec<RenderableCell> = terminal
             .renderable_cells(config, window_focused)
             .collect();
@@ -323,6 +320,8 @@ impl Display {
                 let _sampler = self.meter.sampler();
 
                 self.renderer.with_api(config, &size_info, visual_bell_intensity, |mut api| {
+                    api.clear(terminal.background_color());
+
                     // Draw the grid
                     api.render_cells(grid_cells.iter(), glyph_cache);
                 });
